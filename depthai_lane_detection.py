@@ -5,6 +5,7 @@ import cv2
 import depthai as dai
 import numpy as np
 import pafy
+import urllib.request
 
 from lane_detection_utils import ModelType, ModelConfig, draw_lanes
 
@@ -93,19 +94,15 @@ def get_frame():
     else:
         return cap.read()
 
-def to_planar(arr: np.ndarray, shape: tuple) -> list:
-    return cv2.resize(arr, shape).transpose(2,0,1).flatten()
-
-
 if __name__ == '__main__':
 
-    use_camera = False
+    use_camera = True
     videoUrl = 'https://youtu.be/2CIxM7x-Clc'
     videoPafy = pafy.new(videoUrl)
     print(videoPafy.streams)
     video_path = videoPafy.streams[-1].url
 
-    model_path = "models/tusimple_288x800.blob"
+    model_path = "models/ultra_falst_lane_detection_tusimple_288x800.blob"
     model_type = ModelType.TUSIMPLE
     model_cfg = ModelConfig(model_type)
 
@@ -138,10 +135,24 @@ if __name__ == '__main__':
         while True:
             # we try to fetch the data from nn/rgb queues. tryGet will return either the data packet or None if there isn't any
             ret, input_img = get_frame()
+            output_img = input_img.copy()
+            # input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)
+
+            # Input values should be from -1 to 1 with a size of 288 x 800 pixels
+            input_img = cv2.resize(input_img, (800,288))
+            cv2.imshow("input", input_img)
+            
+            # Scale input pixel values to -1 to 1
+            mean=[0.485, 0.456, 0.406]
+            std=[0.229, 0.224, 0.225]
+
+            input_img = ((input_img.astype(np.float32)/ 255.0 - mean[::-1]) / std[::-1]).astype(np.float32)
+            input_img = input_img[np.newaxis,:,:,:]      
+
             
             if not use_camera:
                 nn_data = dai.NNData()
-                nn_data.setLayer("input", to_planar(input_img, (800, 288)))
+                nn_data.setLayer("input", input_img)
                 lane_in.send(nn_data)
 
             in_nn = lane_nn.get()
@@ -150,7 +161,7 @@ if __name__ == '__main__':
             
             fps.next_iter()
 
-            lane_img = draw_lanes(input_img, output, model_cfg)
+            lane_img = draw_lanes(output_img, output, model_cfg)
             cv2.putText(lane_img, f"RGB FPS: {round(fps.fps(), 1)}", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
             (0, 255, 0))
 
